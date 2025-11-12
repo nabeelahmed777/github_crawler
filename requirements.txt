@@ -2,7 +2,3 @@ psycopg2-binary
 requests
 python-dotenv
 pandas
-
-echo psycopg2-binary==2.9.5 > requirements.txt
-echo requests==2.28.2 >> requirements.txt
-echo python-dotenv==0.19.2 >> requirements.txt
