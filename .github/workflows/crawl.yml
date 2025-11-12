@@ -37,13 +37,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-        - name: Setup database
+    - name: Setup database
       env:
         DB_HOST: localhost
         DB_PORT: 5432
-        DB_NAME: github_data  # Changed
+        DB_NAME: github_data
         DB_USER: postgres
-        DB_PASSWORD: 112233   # Changed
+        DB_PASSWORD: 112233
       run: |
         python scripts/setup_database.py
 
@@ -51,9 +51,9 @@ jobs:
       env:
         DB_HOST: localhost
         DB_PORT: 5432
-        DB_NAME: github_data  # Changed
+        DB_NAME: github_data
         DB_USER: postgres
-        DB_PASSWORD: 112233   # Changed
+        DB_PASSWORD: 112233
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python main.py
@@ -62,9 +62,9 @@ jobs:
       env:
         DB_HOST: localhost
         DB_PORT: 5432
-        DB_NAME: github_data  # Changed
+        DB_NAME: github_data
         DB_USER: postgres
-        DB_PASSWORD: 112233   # Changed
+        DB_PASSWORD: 112233
       run: |
         python scripts/export_data.py
 
