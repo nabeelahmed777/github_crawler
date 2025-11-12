@@ -2,8 +2,6 @@ name: GitHub Repository Crawler
 
 on:
   workflow_dispatch:  # Manual trigger
-  schedule:
-    - cron: '0 2 * * *'  # Run daily at 2 AM
 
 jobs:
   crawl:
@@ -58,21 +56,6 @@ jobs:
       run: |
         python main.py
 
-    - name: Export data
-      env:
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DB_NAME: github_data
-        DB_USER: postgres
-        DB_PASSWORD: 112233
+    - name: Upload success
       run: |
-        python scripts/export_data.py
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: repository-data
-        path: |
-          repositories_export.csv
-          repositories_export.json
-        retention-days: 7
+        echo "🎉 GitHub Repository Crawler completed successfully!"
