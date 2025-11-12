@@ -1,120 +1,31 @@
-import requests
 import time
-import json
-from datetime import datetime
 from typing import List, Optional
-from config import GITHUB_TOKEN, GRAPHQL_URL, RATE_LIMIT_DELAY
+from datetime import datetime
 from src.models import Repository
+from src.github_api import GitHubAPI
 from src.database import DatabaseManager
 
 
-class GitHubCrawler:
-    def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {GITHUB_TOKEN}",
-                "Content-Type": "application/json",
-            }
-        )
-        self.db = DatabaseManager()
-        self.crawled_count = 0
+class RepositoryCrawler:
+    """High-performance repository crawler with clean architecture"""
 
-    def check_authentication(self):
-        """Check if GitHub token is working"""
-        check_query = """
-        query {
-          viewer {
-            login
-          }
-          rateLimit {
-            limit
-            cost
-            remaining
-            resetAt
-          }
-        }
-        """
+    def __init__(self, github_token: str, db_config: dict):
+        self.github_api = GitHubAPI(github_token)
+        self.db_manager = DatabaseManager(db_config)
+        self.processed_count = 0
 
-        response = self.make_graphql_query(check_query)
-        if response and "data" in response:
-            print("=== GitHub authentication successful === ")
-            rate_limit = response["data"]["rateLimit"]
-            print(
-                f"Rate limit: {rate_limit['remaining']}/{rate_limit['limit']} remaining"
-            )
-            return True
-        else:
-            print(" === GitHub authentication failed === ")
-            return False
-
-    def make_graphql_query(self, query: str, variables: dict = None) -> Optional[dict]:
-        """Make GraphQL query to GitHub API with error handling"""
-        max_retries = 3
-        retry_delay = 5
-
-        for attempt in range(max_retries):
-            try:
-                response = self.session.post(
-                    GRAPHQL_URL,
-                    json={"query": query, "variables": variables},
-                    timeout=30,
-                )
-
-                print(f"API Response Status: {response.status_code}")
-
-                if response.status_code == 200:
-                    data = response.json()
-                    if "errors" in data:
-                        print(f"GraphQL errors: {data['errors']}")
-                        return None
-                    return data
-                elif response.status_code == 502:
-                    print(
-                        f" ===  502 Bad Gateway (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds..."
-                    )
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                    continue
-                elif response.status_code == 403:
-                    # Rate limit hit
-                    reset_time = response.headers.get("X-RateLimit-Reset")
-                    if reset_time:
-                        wait_time = int(reset_time) - time.time() + 10
-                        print(f" ===  Rate limit hit. Waiting {wait_time:.0f} seconds")
-                        time.sleep(max(wait_time, 0))
-                        return self.make_graphql_query(query, variables)
-                    else:
-                        print("Rate limit hit but no reset time provided")
-                        return None
-                else:
-                    print(
-                        f" ===  HTTP error {response.status_code}: {response.text[:200]}"
-                    )
-                    return None
-
-            except requests.exceptions.Timeout:
-                print(f" ===  Request timeout (attempt {attempt + 1}/{max_retries})")
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            except Exception as e:
-                print(f" ===  Error making GraphQL query: {e}")
-                return None
-
-        print(" ===  All retry attempts failed")
-        return None
-
-    def get_popular_repositories(self, cursor: str = None) -> tuple:
-        """Get a batch of popular repositories"""
+    def fetch_repository_batch(
+        self, cursor: Optional[str] = None, batch_size: int = 100
+    ) -> tuple:
+        """Fetch batch of repositories efficiently"""
         query = """
-        query($cursor: String) {
+        query($cursor: String, $batchSize: Int!) {
           search(
-            query: "stars:>100"
+            query: "stars:>1 sort:stars-desc"
             type: REPOSITORY
-            first: 50
+            first: $batchSize
             after: $cursor
           ) {
-            repositoryCount
             pageInfo {
               hasNextPage
               endCursor
@@ -123,106 +34,96 @@ class GitHubCrawler:
               ... on Repository {
                 id
                 name
-                owner {
-                  login
-                }
+                owner { login }
                 nameWithOwner
                 stargazerCount
                 url
                 description
-                primaryLanguage {
-                  name
-                }
+                primaryLanguage { name }
                 createdAt
                 updatedAt
               }
             }
           }
-          rateLimit {
-            cost
-            remaining
-            resetAt
-          }
         }
         """
 
-        variables = {"cursor": cursor}
-        data = self.make_graphql_query(query, variables)
+        variables = {"cursor": cursor, "batchSize": batch_size}
+        data = self.github_api.execute_query(query, variables)
 
-        if not data:
+        if not data or "data" not in data:
             return [], None, False
 
         search_data = data["data"]["search"]
         repositories = []
 
-        # Fix: Use 'nodes' instead of 'edges'
         for node in search_data["nodes"]:
-            repo = Repository(
-                id=node["id"],
-                name=node["name"],
-                owner=node["owner"]["login"],
-                name_with_owner=node["nameWithOwner"],
-                stargazers_count=node["stargazerCount"],
-                url=node["url"],
-                description=node["description"],
-                primary_language=node["primaryLanguage"]["name"]
-                if node["primaryLanguage"]
-                else None,
-                created_at=datetime.strptime(node["createdAt"], "%Y-%m-%dT%H:%M:%SZ"),
-                updated_at=datetime.strptime(node["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"),
-                crawled_at=datetime.now(),
-            )
-            repositories.append(repo)
+            try:
+                repo = Repository(
+                    id=node["id"],
+                    name=node["name"],
+                    owner=node["owner"]["login"],
+                    name_with_owner=node["nameWithOwner"],
+                    stargazers_count=node["stargazerCount"],
+                    url=node["url"],
+                    description=node["description"],
+                    primary_language=node["primaryLanguage"]["name"]
+                    if node["primaryLanguage"]
+                    else None,
+                    created_at=datetime.strptime(
+                        node["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    updated_at=datetime.strptime(
+                        node["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    crawled_at=datetime.now(),
+                )
+                repositories.append(repo)
+            except (KeyError, ValueError) as e:
+                print(f"Skipping invalid repository data: {e}")
+                continue
 
         page_info = search_data["pageInfo"]
-        next_cursor = page_info["endCursor"] if page_info["hasNextPage"] else None
+        return repositories, page_info["endCursor"], page_info["hasNextPage"]
 
-        return repositories, next_cursor, page_info["hasNextPage"]
+    def crawl(self, max_repositories: int = 100000, batch_size: int = 100):
+        """Main crawling method optimized for speed"""
+        print(f" ==> Starting crawl for {max_repositories} repositories")
 
-    def crawl_repositories(self, max_repositories: int = 1000):  # Reduced for testing
-        """Main crawling method"""
-        print("Starting GitHub repository crawl...")
-
-        # First check authentication
-        if not self.check_authentication():
-            print(" ===  Cannot proceed without authentication")
-            return
+        # Rate limit check
+        rate_limit = self.github_api.get_rate_limit_status()
+        if rate_limit:
+            print(f" ==? Rate limit: {rate_limit['remaining']}/{rate_limit['limit']}")
 
         cursor = None
-        has_next_page = True
+        has_next = True
 
-        while has_next_page and self.crawled_count < max_repositories:
-            print(f" ===  Fetching batch {self.crawled_count // 50 + 1}...")
+        while has_next and self.processed_count < max_repositories:
+            start_time = time.time()
 
-            repositories, cursor, has_next_page = self.get_popular_repositories(cursor)
-
-            if not repositories:
-                print("No repositories returned, stopping crawl")
-                break
-
-            # Save to database
-            successful_saves = 0
-            for repo in repositories:
-                if self.db.upsert_repository(repo):
-                    successful_saves += 1
-
-            self.crawled_count += len(repositories)
-            print(
-                f" ===  Crawled {self.crawled_count} repositories. Last batch: {len(repositories)} repositories, {successful_saves} saved/updated"
+            repositories, cursor, has_next = self.fetch_repository_batch(
+                cursor, batch_size
             )
 
-            # Respect rate limits
-            time.sleep(RATE_LIMIT_DELAY)
-
-            # Safety check - don't exceed max
-            if self.crawled_count >= max_repositories:
+            if not repositories:
+                print(" ==> No repositories fetched, stopping")
                 break
 
-        print(
-            f" ===  Crawl completed. Total repositories processed: {self.crawled_count}"
-        )
-        print(f" === Total in database: {self.db.get_repository_count()}")
+            # Bulk insert for better performance
+            saved_count = self.db_manager.bulk_upsert_repositories(repositories)
+            self.processed_count += len(repositories)
 
-    def close(self):
-        """Clean up resources"""
-        self.db.close()
+            batch_time = time.time() - start_time
+            repos_per_second = len(repositories) / batch_time if batch_time > 0 else 0
+
+            print(
+                f" ==>  Batch: {len(repositories)} repos | "
+                f"Total: {self.processed_count} | "
+                f"Speed: {repos_per_second:.1f} repos/sec | "
+                f"Saved: {saved_count}"
+            )
+
+            # Adaptive delay based on rate limit
+            time.sleep(0.5)  # Reduced delay for faster crawling
+
+        print(f" == > Crawl completed: {self.processed_count} repositories processed")

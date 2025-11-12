@@ -3,8 +3,10 @@ from datetime import datetime
 from typing import Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class Repository:
+    """Immutable data model for GitHub repositories"""
+
     id: str
     name: str
     owner: str

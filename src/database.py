@@ -1,128 +1,88 @@
 import psycopg2
-from psycopg2.extras import execute_batch
-from config import DB_CONFIG
+from typing import List
+from src.models import Repository
 
 
 class DatabaseManager:
-    def __init__(self):
-        self.connection = None
-        self.connect()
-        self.create_tables()
+    """Handles all database operations with proper separation"""
 
-    def connect(self):
-        """Establish database connection"""
+    def __init__(self, db_config: dict):
+        self.db_config = db_config
+        self.connection = self._create_connection()
+        self._setup_schema()
+
+    def _create_connection(self):
+        """Create database connection - Anti-corruption layer"""
         try:
-            self.connection = psycopg2.connect(**DB_CONFIG)
-            print("Connected to database successfully")
+            return psycopg2.connect(**self.db_config)
         except Exception as e:
-            print(f"Error connecting to database: {e}")
-            raise
+            raise ConnectionError(f"Database connection failed: {e}")
 
-    def create_tables(self):
-        """Create the repositories table"""
-        create_table_query = """
-        CREATE TABLE IF NOT EXISTS repositories (
-            id VARCHAR(50) PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            owner VARCHAR(255) NOT NULL,
-            name_with_owner VARCHAR(510) NOT NULL,
-            stargazers_count INTEGER NOT NULL,
-            url VARCHAR(500),
-            description TEXT,
-            primary_language VARCHAR(100),
-            created_at TIMESTAMP,
-            updated_at TIMESTAMP,
-            crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """
-
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(create_table_query)
-            self.connection.commit()
-            print("Tables created successfully")
-        except Exception as e:
-            print(f"Error creating tables: {e}")
-            self.connection.rollback()
-            raise
-
-        # Create indexes separately
-        self.create_indexes()
-
-    def create_indexes(self):
-        """Create indexes for better performance"""
-        indexes = [
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_name_with_owner ON repositories(name_with_owner)",
-            "CREATE INDEX IF NOT EXISTS idx_stargazers_count ON repositories(stargazers_count)",
-            "CREATE INDEX IF NOT EXISTS idx_crawled_at ON repositories(crawled_at)",
-            "CREATE INDEX IF NOT EXISTS idx_owner ON repositories(owner)",
+    def _setup_schema(self):
+        """Initialize database schema"""
+        schema_queries = [
+            """
+            CREATE TABLE IF NOT EXISTS repositories (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                owner VARCHAR(255) NOT NULL,
+                name_with_owner VARCHAR(510) NOT NULL,
+                stargazers_count INTEGER NOT NULL,
+                url VARCHAR(500),
+                description TEXT,
+                primary_language VARCHAR(100),
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
+                crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_name_with_owner ON repositories(name_with_owner)",
+            "CREATE INDEX IF NOT EXISTS idx_stargazers ON repositories(stargazers_count DESC)",
         ]
 
-        try:
-            with self.connection.cursor() as cursor:
-                for index_query in indexes:
-                    cursor.execute(index_query)
-            self.connection.commit()
-            print("Indexes created successfully")
-        except Exception as e:
-            print(f"Error creating indexes: {e}")
-            self.connection.rollback()
+        with self.connection.cursor() as cursor:
+            for query in schema_queries:
+                cursor.execute(query)
+        self.connection.commit()
 
-    def upsert_repository(self, repo):
-        """Insert or update repository data"""
+    def bulk_upsert_repositories(self, repositories: List[Repository]) -> int:
+        """Efficient bulk upsert operation for better performance"""
         query = """
-        INSERT INTO repositories 
-            (id, name, owner, name_with_owner, stargazers_count, url, description, primary_language, created_at, updated_at, crawled_at, last_updated)
-        VALUES 
-            (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-        ON CONFLICT (id) 
-        DO UPDATE SET 
-            stargazers_count = EXCLUDED.stargazers_count,
-            description = EXCLUDED.description,
-            primary_language = EXCLUDED.primary_language,
-            updated_at = EXCLUDED.updated_at,
-            crawled_at = EXCLUDED.crawled_at,
-            last_updated = CURRENT_TIMESTAMP
+            INSERT INTO repositories 
+            (id, name, owner, name_with_owner, stargazers_count, url, description, primary_language, created_at, updated_at, crawled_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) 
+            DO UPDATE SET 
+                stargazers_count = EXCLUDED.stargazers_count,
+                description = EXCLUDED.description,
+                primary_language = EXCLUDED.primary_language,
+                updated_at = EXCLUDED.updated_at,
+                crawled_at = EXCLUDED.crawled_at
         """
 
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    query,
-                    (
-                        repo.id,
-                        repo.name,
-                        repo.owner,
-                        repo.name_with_owner,
-                        repo.stargazers_count,
-                        repo.url,
-                        repo.description,
-                        repo.primary_language,
-                        repo.created_at,
-                        repo.updated_at,
-                        repo.crawled_at,
-                    ),
-                )
-            self.connection.commit()
-            return True
-        except Exception as e:
-            print(f"Error upserting repository {repo.name_with_owner}: {e}")
-            self.connection.rollback()
-            return False
+        successful = 0
+        with self.connection.cursor() as cursor:
+            for repo in repositories:
+                try:
+                    cursor.execute(
+                        query,
+                        (
+                            repo.id,
+                            repo.name,
+                            repo.owner,
+                            repo.name_with_owner,
+                            repo.stargazers_count,
+                            repo.url,
+                            repo.description,
+                            repo.primary_language,
+                            repo.created_at,
+                            repo.updated_at,
+                            repo.crawled_at,
+                        ),
+                    )
+                    successful += 1
+                except Exception as e:
+                    print(f"Failed to save {repo.name_with_owner}: {e}")
 
-    def get_repository_count(self):
-        """Get total number of repositories in database"""
-        query = "SELECT COUNT(*) FROM repositories"
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(query)
-                return cursor.fetchone()[0]
-        except Exception as e:
-            print(f"Error getting repository count: {e}")
-            return 0
-
-    def close(self):
-        """Close database connection"""
-        if self.connection:
-            self.connection.close()
+        self.connection.commit()
+        return successful
