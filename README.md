@@ -23,6 +23,10 @@ A scalable GitHub repository crawler that collects star count data using GitHub'
 # Setup database
 python scripts/setup_database.py
 
+# Github Token 
+set GITHUB_TOKEN=your_actual_token_here
+
+
 # Run crawler
 python main.py
 
