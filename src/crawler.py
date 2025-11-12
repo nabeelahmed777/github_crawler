@@ -38,14 +38,14 @@ class GitHubCrawler:
 
         response = self.make_graphql_query(check_query)
         if response and "data" in response:
-            print("✅ GitHub authentication successful")
+            print("=== GitHub authentication successful === ")
             rate_limit = response["data"]["rateLimit"]
             print(
                 f"Rate limit: {rate_limit['remaining']}/{rate_limit['limit']} remaining"
             )
             return True
         else:
-            print("❌ GitHub authentication failed")
+            print(" === GitHub authentication failed === ")
             return False
 
     def make_graphql_query(self, query: str, variables: dict = None) -> Optional[dict]:
@@ -71,7 +71,7 @@ class GitHubCrawler:
                     return data
                 elif response.status_code == 502:
                     print(
-                        f"🔁 502 Bad Gateway (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds..."
+                        f" ===  502 Bad Gateway (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay} seconds..."
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
@@ -81,7 +81,7 @@ class GitHubCrawler:
                     reset_time = response.headers.get("X-RateLimit-Reset")
                     if reset_time:
                         wait_time = int(reset_time) - time.time() + 10
-                        print(f"⏳ Rate limit hit. Waiting {wait_time:.0f} seconds")
+                        print(f" ===  Rate limit hit. Waiting {wait_time:.0f} seconds")
                         time.sleep(max(wait_time, 0))
                         return self.make_graphql_query(query, variables)
                     else:
@@ -89,19 +89,19 @@ class GitHubCrawler:
                         return None
                 else:
                     print(
-                        f"❌ HTTP error {response.status_code}: {response.text[:200]}"
+                        f" ===  HTTP error {response.status_code}: {response.text[:200]}"
                     )
                     return None
 
             except requests.exceptions.Timeout:
-                print(f"⏰ Request timeout (attempt {attempt + 1}/{max_retries})")
+                print(f" ===  Request timeout (attempt {attempt + 1}/{max_retries})")
                 time.sleep(retry_delay)
                 retry_delay *= 2
             except Exception as e:
-                print(f"❌ Error making GraphQL query: {e}")
+                print(f" ===  Error making GraphQL query: {e}")
                 return None
 
-        print("🔴 All retry attempts failed")
+        print(" ===  All retry attempts failed")
         return None
 
     def get_popular_repositories(self, cursor: str = None) -> tuple:
@@ -185,14 +185,14 @@ class GitHubCrawler:
 
         # First check authentication
         if not self.check_authentication():
-            print("🔴 Cannot proceed without authentication")
+            print(" ===  Cannot proceed without authentication")
             return
 
         cursor = None
         has_next_page = True
 
         while has_next_page and self.crawled_count < max_repositories:
-            print(f"🔄 Fetching batch {self.crawled_count // 50 + 1}...")
+            print(f" ===  Fetching batch {self.crawled_count // 50 + 1}...")
 
             repositories, cursor, has_next_page = self.get_popular_repositories(cursor)
 
@@ -208,7 +208,7 @@ class GitHubCrawler:
 
             self.crawled_count += len(repositories)
             print(
-                f"✅ Crawled {self.crawled_count} repositories. Last batch: {len(repositories)} repositories, {successful_saves} saved/updated"
+                f" ===  Crawled {self.crawled_count} repositories. Last batch: {len(repositories)} repositories, {successful_saves} saved/updated"
             )
 
             # Respect rate limits
@@ -218,8 +218,10 @@ class GitHubCrawler:
             if self.crawled_count >= max_repositories:
                 break
 
-        print(f"🎉 Crawl completed. Total repositories processed: {self.crawled_count}")
-        print(f"💾 Total in database: {self.db.get_repository_count()}")
+        print(
+            f" ===  Crawl completed. Total repositories processed: {self.crawled_count}"
+        )
+        print(f" === Total in database: {self.db.get_repository_count()}")
 
     def close(self):
         """Clean up resources"""
