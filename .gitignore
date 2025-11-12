@@ -1,10 +1,6 @@
 .env
-repositories_export.csv
-repositories_export.json
+*.csv
+*.json
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
+.DS_Store

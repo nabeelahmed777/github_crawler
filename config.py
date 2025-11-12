@@ -13,7 +13,7 @@ DB_CONFIG = {
 }
 
 # GitHub API configuration
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = ""
 GRAPHQL_URL = "https://api.github.com/graphql"
 
 # Crawler configuration
