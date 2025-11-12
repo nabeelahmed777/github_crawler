@@ -12,7 +12,7 @@ jobs:
         image: postgres:13
         env:
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: github_crawler
+          POSTGRES_DB: github_data
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -41,7 +41,7 @@ jobs:
         DB_PORT: 5432
         DB_NAME: github_data
         DB_USER: postgres
-        DB_PASSWORD: 112233
+        DB_PASSWORD: password  
       run: |
         python scripts/setup_database.py
 
@@ -51,7 +51,7 @@ jobs:
         DB_PORT: 5432
         DB_NAME: github_data
         DB_USER: postgres
-        DB_PASSWORD: 112233
+        DB_PASSWORD: password  
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python main.py
