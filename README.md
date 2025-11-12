@@ -28,3 +28,8 @@ python main.py
 
 # Export data
 python scripts/export_data.py
+
+
+# GitHub Repository Crawler
+## Sofstica Assignment
+Complete GitHub crawler with PostgreSQL and GraphQL API
