@@ -1,0 +1,10 @@
+.env
+repositories_export.csv
+repositories_export.json
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
